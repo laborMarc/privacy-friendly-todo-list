@@ -354,10 +354,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             }
         }
 
-        val listIdFromWidget = extras.getString(TodoListWidget.EXTRA_WIDGET_LIST_ID, null)
+        val listIdFromWidget = extras.getString(TodoListWidget.EXTRA_TODO_WIDGET_LIST_ID, null)
         if (null != listIdFromWidget) {
             // Remove entry to avoid to process it more than once. Sometimes extras get processed more than once.
-            extras.remove(TodoListWidget.EXTRA_WIDGET_LIST_ID)
+            extras.remove(TodoListWidget.EXTRA_TODO_WIDGET_LIST_ID)
             todoDataLoaded = true
             Log.d(TAG, "Widget started MainActivity to show tasks of list $listIdFromWidget.")
             val listId = if (listIdFromWidget != "null") listIdFromWidget.toInt() else null

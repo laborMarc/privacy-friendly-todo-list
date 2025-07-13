@@ -20,9 +20,8 @@ package org.secuso.privacyfriendlytodolist.model
 import android.content.Context
 import androidx.core.content.ContextCompat
 import org.secuso.privacyfriendlytodolist.R
-import java.util.concurrent.TimeUnit
 
-class Urgency(val level: Level, val daysUntilDeadline: Long?) {
+class Urgency(private val level: Level, val daysUntilDeadline: Long?) {
 
     /**
      * The urgency of a to-do task.
