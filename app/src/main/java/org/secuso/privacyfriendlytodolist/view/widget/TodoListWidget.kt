@@ -23,10 +23,11 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.RemoteViews
+import androidx.core.net.toUri
 import org.secuso.privacyfriendlytodolist.R
 import org.secuso.privacyfriendlytodolist.model.Model
 import org.secuso.privacyfriendlytodolist.model.ModelObserver
@@ -41,6 +42,8 @@ import org.secuso.privacyfriendlytodolist.view.MainActivity
  * @version 1.0
  */
 class TodoListWidget : AppWidgetProvider(), ModelObserver {
+    private val factory = TodoListWidgetViewsFactory()
+
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(TAG, "Received action '${intent.action}'.")
         if (ACTION_REGISTER_AS_MODEL_OBSERVER == intent.action) {
@@ -54,14 +57,15 @@ class TodoListWidget : AppWidgetProvider(), ModelObserver {
 
     override fun onEnabled(context: Context) {
         Log.d(TAG, "onEnabled().")
-        super.onEnabled(context)
         Model.registerModelObserver(this)
+        super.onEnabled(context)
     }
 
     override fun onDisabled(context: Context?) {
         Log.d(TAG, "onDisabled().")
         super.onDisabled(context)
         Model.unregisterModelObserver(this)
+        factory.destroy()
     }
 
     override fun onTodoDataChanged(context: Context, changedLists: Int, changedTasks: Int, changedSubtasks: Int) {
@@ -69,9 +73,7 @@ class TodoListWidget : AppWidgetProvider(), ModelObserver {
         val thisComponentName = ComponentName(context.packageName, TodoListWidget::class.java.name)
         val appWidgetIds = appWidgetManager.getAppWidgetIds(thisComponentName)
         Log.d(TAG, "onTodoDataChanged() notifies widgets with IDs ${appWidgetIds.contentToString()}.")
-        for (appWidgetId in appWidgetIds) {
-            appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.listview_widget)
-        }
+        triggerWidgetUpdate(context, appWidgetIds)
     }
 
     private fun initialUpdate(context: Context) {
@@ -91,53 +93,68 @@ class TodoListWidget : AppWidgetProvider(), ModelObserver {
     }
 
     @Suppress("UnnecessaryVariable")
-    private fun update(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int,
-                       title: String? = null) {
+    private fun update(context: Context, appWidgetManager: AppWidgetManager,
+                       appWidgetId: Int, title: String? = null) {
+        var finalTitle = title
         val view = RemoteViews(context.packageName, R.layout.widget_list)
         val uniqueRequestCode = appWidgetId
 
-        // Intent to call the Service adding the tasks to the ListView
-        var intent = Intent(context, TodoListWidgetViewsService::class.java)
-        intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-        // This line of code causes that for every widget an own WidgetViewsFactory gets created:
-        intent.setData(Uri.parse(intent.toUri(Intent.URI_INTENT_SCHEME)))
-        // To avoid deprecation of setRemoteAdapter(int, Intent) at least API 31 is needed. See
-        // https://developer.android.com/develop/ui/views/appwidgets/collections#use-remote-collections
-        view.setRemoteAdapter(R.id.listview_widget, intent)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            ////////// Legacy API to set remote adapter //////////
+            // Intent to call the Service adding the tasks to the ListView
+            var intent1 = Intent(context, TodoListWidgetViewsService::class.java)
+            intent1.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            // This line of code causes that for every widget an own WidgetViewsFactory gets created:
+            intent1.setData(intent1.toUri(Intent.URI_INTENT_SCHEME).toUri())
+            view.setRemoteAdapter(R.id.listview_widget, intent1)
+        } else {
+            ////////// Up-to-date API to set remote adapter //////////
+            val items = factory.createItems(context, appWidgetId)
+            finalTitle = factory.listName
+            val builder = RemoteViews.RemoteCollectionItems.Builder()
+                .setHasStableIds(true)
+                .setViewTypeCount(factory.numberOfViewTypes)
+            for (item in items) {
+                builder.addItem(item.first.toLong(), item.second)
+            }
+            view.setRemoteAdapter(R.id.listview_widget, builder.build())
+        }
 
         // Intent-template to open the App by clicking on an elements of the LinearLayout.
         // This template gets filled in TodoListWidgetViewsFactory#createItem() via setOnClickFillInIntent()
-        intent = Intent(context, MainActivity::class.java)
-        var pendingIntent = PendingIntent.getActivity(context, uniqueRequestCode, intent,
+        val intent2 = Intent(context, MainActivity::class.java)
+        var pendingIntent = PendingIntent.getActivity(context, uniqueRequestCode, intent2,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
         view.setPendingIntentTemplate(R.id.listview_widget, pendingIntent)
 
         // Intent to open the App by clicking on the widget title or the widget background.
         val pref = TodoListWidgetConfigureActivity.loadWidgetPreferences(context, appWidgetId) ?: TodoListWidgetPreferences()
-        intent = Intent(context, MainActivity::class.java)
-        intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-        intent.putExtra(EXTRA_WIDGET_LIST_ID, pref.todoListId.toString())
-        pendingIntent = PendingIntent.getActivity(context, uniqueRequestCode, intent,
+        val intent3 = Intent(context, MainActivity::class.java)
+        intent3.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        intent3.putExtra(EXTRA_TODO_WIDGET_LIST_ID, pref.todoListId.toString())
+        pendingIntent = PendingIntent.getActivity(context, uniqueRequestCode, intent3,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         view.setOnClickPendingIntent(R.id.ll_todo_list_widget_root, pendingIntent)
 
         view.setEmptyView(R.id.listview_widget, R.id.tv_empty_widget)
-        if (null != title) {
-            view.setTextViewText(R.id.widget_title, title)
+        if (null != finalTitle) {
+            view.setTextViewText(R.id.widget_title, finalTitle)
         }
 
         appWidgetManager.updateAppWidget(appWidgetId, view)
-        appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.listview_widget)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.listview_widget)
+        }
 
-        Log.d(TAG, "Widget $appWidgetId: Updated. List ID: ${pref.todoListId}, title: '$title'.")
+        Log.d(TAG, "Widget $appWidgetId: Updated. List ID: ${pref.todoListId}, title: '$finalTitle'.")
     }
 
     override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager,
-        appWidgetId: Int, newOptions: Bundle) {
+                                           appWidgetId: Int, newOptions: Bundle) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
 
         // Check if title was changed.
-        val title = newOptions.getString(OPTION_WIDGET_TITLE, null)
+        val title = newOptions.getString(OPTION_TODO_WIDGET_TITLE, null)
         if (null != title) {
             Log.d(TAG, "Widget $appWidgetId: New title: '$title'.")
             update(context, appWidgetManager, appWidgetId, title)
@@ -157,8 +174,8 @@ class TodoListWidget : AppWidgetProvider(), ModelObserver {
     companion object {
         private val TAG = LogTag.create(this::class.java.declaringClass)
         private const val ACTION_REGISTER_AS_MODEL_OBSERVER = "ACTION_REGISTER_AS_MODEL_OBSERVER"
-        const val EXTRA_WIDGET_LIST_ID = "EXTRA_WIDGET_LIST_ID"
-        const val OPTION_WIDGET_TITLE = "OPTION_WIDGET_TITLE"
+        const val EXTRA_TODO_WIDGET_LIST_ID = "EXTRA_TODO_WIDGET_LIST_ID"
+        const val OPTION_TODO_WIDGET_TITLE = "OPTION_TODO_WIDGET_TITLE"
 
         fun registerAsModelObserver(context: Context) {
             val intent = Intent(context, TodoListWidget::class.java)
@@ -166,18 +183,11 @@ class TodoListWidget : AppWidgetProvider(), ModelObserver {
             context.sendBroadcast(intent)
         }
 
-        fun triggerWidgetUpdate(context: Context, appWidgetId: Int) {
-            val intent = createWidgetUpdateIntent(context, appWidgetId)
-            context.sendBroadcast(intent)
-        }
-
-        private fun createWidgetUpdateIntent(context: Context, appWidgetId: Int): Intent {
+        fun triggerWidgetUpdate(context: Context, appWidgetIds: IntArray) {
             val intent = Intent(context, TodoListWidget::class.java)
             intent.setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
-            val appWidgetIds = IntArray(1)
-            appWidgetIds[0] = appWidgetId
             intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, appWidgetIds)
-            return intent
+            context.sendBroadcast(intent)
         }
     }
 }

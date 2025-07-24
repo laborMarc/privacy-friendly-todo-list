@@ -137,7 +137,7 @@ class TodoListWidgetConfigureActivity : Activity() {
             saveWidgetPreferences(this, appWidgetId, pref)
 
             // Trigger update after list name was saved to update the widget title with list name.
-            TodoListWidget.triggerWidgetUpdate(this, appWidgetId)
+            TodoListWidget.triggerWidgetUpdate(this, intArrayOf(appWidgetId))
 
             // Make sure we pass back the original appWidgetId
             val resultValue = Intent()
@@ -195,8 +195,8 @@ class TodoListWidgetConfigureActivity : Activity() {
         private const val PREFIX = "_todo_list_widget_"
 
         private fun saveWidgetPreferences(context: Context, appWidgetId: Int, pref: TodoListWidgetPreferences) {
-            val prefs = context.getSharedPreferences(PREFS_NAME, 0).edit()
             val prefix = appWidgetId.toString() + PREFIX
+            val prefs = context.getSharedPreferences(PREFS_NAME, 0).edit()
             prefs.putString(prefix + PREF_KEY_LIST_ID, pref.todoListId.toString())
             prefs.putString(prefix + PREF_KEY_TASK_FILTER, pref.taskFilter.toString())
             prefs.putBoolean(prefix + PREF_KEY_GROUP_BY_PRIORITY, pref.isGroupingByPriority)
@@ -231,8 +231,8 @@ class TodoListWidgetConfigureActivity : Activity() {
         }
 
         fun deleteWidgetPreferences(context: Context, appWidgetId: Int) {
-            val prefs = context.getSharedPreferences(PREFS_NAME, 0).edit()
             val prefix = appWidgetId.toString() + PREFIX
+            val prefs = context.getSharedPreferences(PREFS_NAME, 0).edit()
             prefs.remove(prefix + PREF_KEY_LIST_ID)
             prefs.remove(prefix + PREF_KEY_TASK_FILTER)
             prefs.remove(prefix + PREF_KEY_GROUP_BY_PRIORITY)
